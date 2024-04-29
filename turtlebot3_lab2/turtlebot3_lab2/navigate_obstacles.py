@@ -20,31 +20,30 @@ class NavigateObstacles(Node):
 
         self.display = True
         self.declare_parameter('distance_threshold', 0.5)
-        self.declare_parameter('clockwise_turn', True) 
+        self.declare_parameter('clockwise_turn', True)
         # Initialization of publisher
         self.cmdvel_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
+        
+        # Initialization of main timer
         self.timer = self.create_timer(0.1, self.timer_callback)
+        
+        # Initialization of scan subscription
+        self.scan_subscriber = self.create_subscription(Scan, '/scan', self.print_scan, 10)
+        
+        self.right_distance = 999
+        self.left_distance = 999
+        self.left_forward_distance = 999
+        self.left_backward_distance = 999
         self.distance = 999
+        
         self.threshold = self.get_parameter('distance_threshold').value
         self.turn_cw = self.get_parameter('clockwise_turn').value
+        
         self.state = "searching_for_wall"
+        
         self.counter = 0
         self.distance_array = []
         self.data = []
-        # self.alive_turtles_pub = self.create_publisher(Float64MultiArray, '/alive_turtles', 10) #not used
-        # self.pose_subscriber = self.create_subscription(Pose, 'turtlesim1/turtle1/pose', self.update_pose, 10)
-        # self.pose = Pose()
-        # self.rate = self.create_rate(10)
-
-        # # Create a client to call the TeleportAbsolute service
-        # self.teleport_client = self.create_client(TeleportAbsolute, 'turtlesim1/turtle1/teleport_absolute')
-        # self.spawn_client = self.create_client(Spawn, 'turtlesim1/spawn')
-        # self.kill_client = self.create_client(Kill, 'turtlesim1/kill')
-        # self.set_pen_client = self.create_client(SetPen, 'turtlesim1/turtle1/set_pen')
-        # self.catch_turtle_service = self.create_service(Kill, 'turtlesim1/catch_turtle', self.catch_turtle_callback)
-
-        self.scan_subscriber = self.create_subscription(Scan, '/scan', self.print_scan, 10)
-
 
     def print_scan(self, data):
         self.data = data
@@ -52,124 +51,77 @@ class NavigateObstacles(Node):
         forward_index = 360
 
         right_index = 540
+        
+        lf_index = 240
+        
+        lb_index = 120
 
         left_index = 180
 
-        self.get_logger().info("forward %s" % str(data.ranges[forward_index]))
-        self.get_logger().info("right %s" % str(data.ranges[right_index]))
+        back_r = 690
+        back_l = 30
+
+        new_distance = data.ranges[back_r]
+        self.back_r_distance = new_distance
+
+        new_distance = data.ranges[back_l]
+        self.back_l_distance = new_distance
+
+
 
         new_distance = data.ranges[forward_index]
-
-        if not new_distance == float('inf'):
-
-            self.distance = new_distance
-
+        self.distance = new_distance
+        
         new_distance = data.ranges[right_index]
-
-        if not new_distance == float('inf'):
-
-            self.right_distance = new_distance
-
+        self.right_distance = new_distance
+        
         new_distance = data.ranges[left_index]
-
-        if not new_distance == float('inf'):
-
-            self.left_distance = new_distance
+        self.left_distance = new_distance
+            
+        new_distance = data.ranges[lf_index]
+        self.left_forward_distance = new_distance
+        
+        new_distance = data.ranges[lb_index]
+        self.left_backward_distance = new_distance
 
     def timer_callback(self):
-
         message = Twist()
 
-        
         if self.state == 'searching_for_wall':
-        	if self.distance < self.threshold:
-        		self.state = 'rotating_after_found_wall'
-        		self.counter = 5
-        	message.angular.z = 0.0
-        	message.linear.x = 0.5
-
-        # if self.state == 'rotating_after_found_wall':
-        # 	if self.counter <= 0:
-        # 		self.state = 'following_wall'
-        # 	message.linear.x = 0.0
-        # 	message.angular.z = math.pi/2
-        # 	self.counter -= 1
-
-        if self.state == 'rotating_after_found_wall':
-            dist = self.data.ranges[175:184]
-            angles = 88
-            dist_updated = []
-            
-
-
-            for x in dist:
-                if (angles <= 92):
-                    y = math.cos((math.pi/2) - (angles* math.pi/180))
-                    dist_updated.append(x/y)
-                    angles += 0.5
-                else:
-                    break
-
-            (slope, std_dev) = self.find_line_slope_and_std(dist_updated)
-            if (abs(slope) > 0.5 or std_dev > 0.15):
+            if self.distance < self.threshold:
+                self.state = 'rotating_at_first_wall' if self.counter == 0 else 'rotating_at_corner'
+                self.counter += 1
                 message.linear.x = 0.0
-                message.angular.z = math.pi/2
-            else:
                 message.angular.z = 0.0
-                self.state = 'following_wall'
-
-            
-
-
-            self.get_logger().info("dist_updated %s" % str(dist_updated))
-
-
-        if self.state == 'following_wall':
-        	if self.right_distance > self.threshold + 1.5:
-        		self.state = 'rotating_after_following_wall'
-        		self.counter = 5
-
-        	message.linear.x = 0.5
-        	message.angular.z = 0.0
-
-        if self.state == 'rotating_after_following_wall':
-        	if self.counter <= 0:
-        		self.state = 'searching_for_wall'
-        	message.linear.x = 0.0
-        	message.angular.z = math.pi/2
-        	self.counter -= 1
-
+            else:
+                if self.left_backward_distance > (2.0 / math.sqrt(3)) * (self.left_distance) or self.left_distance < self.threshold:
+                    message.angular.z = -0.05
+                elif self.left_backward_distance < (2.0 / math.sqrt(3)) * (self.left_distance):
+                    message.angular.z = 0.05
+                else:
+                    message.angular.z = 0.0
+                message.linear.x = 0.5
+        
+        elif self.state == 'rotating_at_first_wall':
+            if self.left_backward_distance <= self.left_forward_distance:
+                self.state = 'searching_for_wall'
+                message.angular.z = 0.0
+            else:
+                message.angular.z = -0.1
+                message.linear.x = -0.018
+        
+        elif self.state == 'rotating_at_corner':
+            self.get_logger().info("dist: %s" % str(self.distance))
+            self.get_logger().info("rb: %s" % str(self.left_backward_distance))
+            self.get_logger().info("rf: %s" % str(self.left_forward_distance))
+            if self.distance >= float('inf') and self.left_backward_distance <= self.left_forward_distance and abs(self.back_l_distance - self.back_r_distance) > 0.1:
+                self.state = 'searching_for_wall'
+                message.angular.z = 0.0
+            else:
+                message.angular.z = -0.1
+                message.linear.x = -0.018
         self.get_logger().info(self.state)
-
-       	self.cmdvel_publisher.publish(message)
-
-
-    def find_line_slope_and_std(self, y_values):
-        n = len(y_values)
-        x_values = list(range(n))
-        sum_x = sum(x_values)
-        sum_y = sum(y_values)
-        sum_xy = sum(x * y for x, y in zip(x_values, y_values))
-        sum_x2 = sum(x**2 for x in x_values)
-
-        # Calculate the slope
-        numerator = n * sum_xy - sum_x * sum_y
-        denominator = n * sum_x2 - sum_x**2
-        if denominator == 0:
-            return None, None  # Avoid division by zero
-
-        slope = numerator / denominator
-        intercept = (sum_y - slope * sum_x) / n
-
-        # Calculate residuals and their standard deviation
-        residuals = [(y - (slope * x + intercept)) for x, y in zip(x_values, y_values)]
-        mean_residual = sum(residuals) / n
-        variance = sum((res - mean_residual)**2 for res in residuals) / (n - 1)
-        std_dev = variance ** 0.5
-
-
-
-        return slope, std_dev
+        self.cmdvel_publisher.publish(message)
 
 def main(args=None):
 
@@ -184,3 +136,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+

@@ -23,7 +23,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'turtle_control_node = turtlebot3_lab2.navigate_obstacles:main',
+            #'turtle_control_node = turtlebot3_lab2.navigate_obstacles:main',
+            'outer_wall = turtlebot3_lab2.outer_wall:main'
         ],
     },
 )
